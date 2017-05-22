@@ -33,6 +33,7 @@ using MSClipperLib;
 
 namespace MatterHackers.QuadTree
 {
+	using System.Linq;
 	using Polygon = List<IntPoint>;
 	using Polygons = List<List<IntPoint>>;
 
@@ -237,6 +238,26 @@ namespace MatterHackers.QuadTree
 			return quadTrees;
 		}
 
+		public static IntPoint Center(this Polygons polygons)
+		{
+			IntPoint center = new IntPoint();
+			int count = 0;
+			foreach (var polygon in polygons)
+			{
+				for (int positionIndex = 0; positionIndex < polygon.Count; positionIndex++)
+				{
+					center += polygon[positionIndex];
+					count++;
+				}
+			}
+
+			if (count > 0)
+			{
+				center /= count;
+			}
+			return center;
+		}
+
 		public static Polygons MakeCloseSegmentsMergable(this Polygons polygonsToSplit, long distanceNeedingAdd, bool pathsAreClosed = true)
 		{
 			Polygons splitPolygons = new Polygons();
@@ -253,23 +274,23 @@ namespace MatterHackers.QuadTree
 			return splitPolygons;
 		}
 
-		public static Tuple<int, int, IntPoint> FindClosestPoint(this Polygons boundaryPolygons, IntPoint position, Func<int, Polygon, bool> considerPolygon = null, Func<int, IntPoint, bool> considerPoint = null)
+		public static (int polyIndex, int pointIndex, IntPoint position) FindClosestPoint(this Polygons boundaryPolygons, IntPoint position, Func<int, Polygon, bool> considerPolygon = null, Func<int, IntPoint, bool> considerPoint = null)
 		{
-			Tuple<int, int, IntPoint> polyPointPosition = null;
+			var polyPointPosition = (-1, -1, new IntPoint());
 
 			long bestDist = long.MaxValue;
 			for (int polygonIndex = 0; polygonIndex < boundaryPolygons.Count; polygonIndex++)
 			{
 				if (considerPolygon == null || considerPolygon(polygonIndex, boundaryPolygons[polygonIndex]))
 				{
-					Tuple<int, IntPoint> closestToPoly = boundaryPolygons[polygonIndex].FindClosestPoint(position, considerPoint);
-					if (closestToPoly != null)
+					var closestToPoly = boundaryPolygons[polygonIndex].FindClosestPoint(position, considerPoint);
+					if (closestToPoly.index != -1)
 					{
 						long length = (closestToPoly.Item2 - position).Length();
 						if (length < bestDist)
 						{
 							bestDist = length;
-							polyPointPosition = new Tuple<int, int, IntPoint>(polygonIndex, closestToPoly.Item1, closestToPoly.Item2);
+							polyPointPosition = (polygonIndex, closestToPoly.Item1, closestToPoly.Item2);
 						}
 					}
 				}
@@ -278,11 +299,13 @@ namespace MatterHackers.QuadTree
 			return polyPointPosition;
 		}
 
-		public static void MovePointInsideBoundary(this Polygons boundaryPolygons, IntPoint startPosition, out Tuple<int, int, IntPoint> polyPointPosition, List<QuadTree<int>> edgeQuadTrees = null)
+		public static void MovePointInsideBoundary(this Polygons boundaryPolygons, IntPoint startPosition, out Tuple<int, int, IntPoint> polyPointPosition, 
+			List<QuadTree<int>> edgeQuadTrees = null,
+			List<QuadTree<int>> pointQuadTrees = null)
 		{
 			Tuple<int, int, IntPoint> bestPolyPointPosition = new Tuple<int, int, IntPoint>(0, 0, startPosition);
 
-			if (boundaryPolygons.PointIsInside(startPosition, edgeQuadTrees))
+			if (boundaryPolygons.PointIsInside(startPosition, edgeQuadTrees, pointQuadTrees))
 			{
 				// already inside
 				polyPointPosition = null;
@@ -345,21 +368,20 @@ namespace MatterHackers.QuadTree
 			polyPointPosition = bestPolyPointPosition;
 		}
 
-		public static bool PointIsInside(this Polygons polygons, IntPoint testPoint, List<QuadTree<int>> edgeQuadTrees = null)
+		public static bool PointIsInside(this Polygons polygons, IntPoint testPoint, List<QuadTree<int>> edgeQuadTrees = null, List<QuadTree<int>> pointQuadTrees = null)
 		{
-			int insideCount = 0;
-			foreach (var polygon in polygons)
+			if (polygons.TouchingEdge(testPoint, edgeQuadTrees))
 			{
-				if (polygons.TouchingEdge(testPoint, edgeQuadTrees))
+				return true;
+			}
+
+			int insideCount = 0;
+			for (int i = 0; i < polygons.Count; i++)
+			{
+				var polygon = polygons[i];
+				if (polygon.PointIsInside(testPoint, pointQuadTrees == null ? null : pointQuadTrees[i]) != 0)
 				{
 					insideCount++;
-				}
-				else
-				{
-					if (polygon.PointIsInside(testPoint) != 0)
-					{
-						insideCount++;
-					}
 				}
 			}
 
@@ -371,11 +393,14 @@ namespace MatterHackers.QuadTree
 			Tuple<int, int, IntPoint> lastItem = new Tuple<int, int, IntPoint>(-1, -1, new IntPoint(long.MaxValue, long.MaxValue));
 			foreach (var item in source)
 			{
-				if (item.Item3 != lastItem.Item3)
+				if (item.Item1 != -1)
 				{
-					yield return item;
+					if (item.Item3 != lastItem.Item3)
+					{
+						yield return item;
+					}
+					lastItem = item;
 				}
-				lastItem = item;
 			}
 		}
 

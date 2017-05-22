@@ -204,7 +204,7 @@ namespace MatterHackers.MatterSlice
 			}
 		}
 
-		public void GenerateSkirt(int distance, int extrusionWidth_um, int numberOfLoops, int brimCount, int minLength, int initialLayerHeight, ConfigSettings config)
+		public void GenerateSkirt(int distance, int extrusionWidth_um, int numberOfLoops, int brimCount, int minLength, ConfigSettings config)
 		{
 			LayerDataStorage storage = this;
 			bool externalOnly = (distance > 0);
@@ -328,7 +328,7 @@ namespace MatterHackers.MatterSlice
 						gcodeLayer.QueuePolygonsByOptimizer(raftIsland, raftBaseConfig);
 
 						Polygons raftLines = new Polygons();
-						Infill.GenerateLinePaths(raftIsland, raftLines, config.RaftBaseLineSpacing_um, config.InfillExtendIntoPerimeter_um, 0);
+						Infill.GenerateLinePaths(raftIsland.Offset(-config.RaftBaseExtrusionWidth_um) , raftLines, config.RaftBaseLineSpacing_um, config.InfillExtendIntoPerimeter_um, 0);
 
 						// write the inside of the raft base
 						gcodeLayer.QueuePolygonsByOptimizer(raftLines, raftBaseConfig);
@@ -391,7 +391,7 @@ namespace MatterHackers.MatterSlice
 		{
 			bool hasWipeTower = storage.wipeTower.PolygonLength() > 0;
 
-			Polygons skirtPolygons = hasWipeTower ? new Polygons(storage.wipeTower) : new Polygons();
+			Polygons skirtPolygons = new Polygons();
 
 			if (config.EnableRaft)
 			{
@@ -399,7 +399,7 @@ namespace MatterHackers.MatterSlice
 			}
 			else
 			{
-				Polygons allOutlines = new Polygons();
+				Polygons allOutlines = hasWipeTower ? new Polygons(storage.wipeTower) : new Polygons();
 
 				// Loop over every extruder
 				for (int extrudeIndex = 0; extrudeIndex < storage.Extruders.Count; extrudeIndex++)
@@ -410,13 +410,19 @@ namespace MatterHackers.MatterSlice
 					{
 						SliceLayer layer0 = storage.Extruders[extrudeIndex].Layers[0];
 						allOutlines.AddAll(layer0.Islands[0]?.IslandOutline);
-
-						break;
 					}
-
-					// Add the layers outline to allOutlines
-					SliceLayer layer = storage.Extruders[extrudeIndex].Layers[0];
-					allOutlines.AddAll(layer.AllOutlines);
+					else
+					{
+						// Add the layers outline to allOutlines
+						SliceLayer layer = storage.Extruders[extrudeIndex].Layers[0];
+						foreach(var island in layer.Islands)
+						{
+							if (island.IslandOutline?.Count > 0)
+							{
+								allOutlines.Add(island.IslandOutline[0]);
+							}
+						}
+					}
 				}
 
 				if (brimCount > 0)
@@ -462,7 +468,7 @@ namespace MatterHackers.MatterSlice
 			return skirtPolygons;
 		}
 
-		private int LastLayerWithChange(ConfigSettings config)
+		public int LastLayerWithChange(ConfigSettings config)
 		{
 			int numLayers = Extruders[0].Layers.Count;
 			int firstExtruderWithData = -1;

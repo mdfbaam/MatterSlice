@@ -82,8 +82,6 @@ namespace MatterHackers.MatterSlice
 	// It also keeps track of the print time estimate for this planning so speed adjustments can be made for the minimum-layer-time.
 	public class GCodePlanner
 	{
-		private bool alwaysRetract;
-
 		private int currentExtruderIndex;
 
 		private double extraTime;
@@ -132,7 +130,6 @@ namespace MatterHackers.MatterSlice
 			extraTime = 0.0;
 			totalPrintTime = 0.0;
 			forceRetraction = false;
-			alwaysRetract = false;
 			currentExtruderIndex = gcode.GetExtruderIndex();
 			this.retractionMinimumDistance_um = retractionMinimumDistance_um;
 
@@ -380,16 +377,14 @@ namespace MatterHackers.MatterSlice
 				path.Retract = true;
 				forceRetraction = false;
 			}
-			else if (PathFinder != null)
+			
+			if (PathFinder != null)
 			{
 				Polygon pathPolygon = new Polygon();
 				if (PathFinder.CreatePathInsideBoundary(LastPosition, positionToMoveTo, pathPolygon))
 				{
-					long lineLength_um = 0;
-					if (pathPolygon.Count > 0)
-					{
-						lineLength_um += (LastPosition - pathPolygon[0]).Length();
-					}
+					IntPoint lastPathPosition = LastPosition;
+					 long lineLength_um = 0;
 
 					// we can stay inside so move within the boundary
 					for (int positionIndex = 0; positionIndex < pathPolygon.Count; positionIndex++)
@@ -398,17 +393,8 @@ namespace MatterHackers.MatterSlice
 						{
 							Width = 0
 						});
-						//ValidatePaths();
-						if (positionIndex > 0)
-						{
-							lineLength_um += (pathPolygon[positionIndex] - pathPolygon[positionIndex - 1]).Length();
-						}
-					}
-
-					// and add in the last bit
-					if (pathPolygon.Count > 1)
-					{
-						lineLength_um += (LastPosition - pathPolygon[pathPolygon.Count - 1]).Length();
+						lineLength_um += (pathPolygon[positionIndex] - lastPathPosition).Length();
+						lastPathPosition = pathPolygon[positionIndex];
 					}
 
 					// If the internal move is very long (> retractionMinimumDistance_um), do a retraction
@@ -474,11 +460,6 @@ namespace MatterHackers.MatterSlice
 					lastPosition = position;
 				}
 			}
-		}
-
-		public void SetAlwaysRetract(bool alwaysRetract)
-		{
-			this.alwaysRetract = alwaysRetract;
 		}
 
 		public bool SetExtruder(int extruder)
